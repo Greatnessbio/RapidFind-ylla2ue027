@@ -24,6 +24,18 @@ def login(username, password):
         return True
     return False
 
+def store_data(key, value):
+    st.session_state[key] = value
+    LOGGER.info(f"Stored data for key: {key}")
+
+def get_stored_data(key):
+    if key in st.session_state:
+        LOGGER.info(f"Retrieved data for key: {key}")
+        return st.session_state[key]
+    else:
+        LOGGER.warning(f"No data found for key: {key}")
+        return None
+
 def get_company_info(company_url, rapidapi_key):
     url = "https://linkedin-data-scraper.p.rapidapi.com/company_pro"
     payload = {"link": company_url}
@@ -43,13 +55,19 @@ def get_company_info(company_url, rapidapi_key):
 
 def get_company_posts(company_url, rapidapi_key):
     url = "https://linkedin-data-scraper.p.rapidapi.com/company_updates"
-    querystring = {"company_url": company_url, "page": "1", "reposts": "2", "comments": "2"}
+    payload = {
+        "company_url": company_url,
+        "posts": 20,
+        "comments": 10,
+        "reposts": 10
+    }
     headers = {
         "x-rapidapi-key": rapidapi_key,
-        "x-rapidapi-host": "linkedin-data-scraper.p.rapidapi.com"
+        "x-rapidapi-host": "linkedin-data-scraper.p.rapidapi.com",
+        "Content-Type": "application/json"
     }
     try:
-        response = requests.get(url, headers=headers, params=querystring)
+        response = requests.post(url, json=payload, headers=headers)
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
@@ -117,64 +135,85 @@ def main_app():
     company_url = st.text_input("Enter LinkedIn Company URL:")
 
     if company_url:
-        if 'company_info' not in st.session_state:
-            st.session_state.company_info = None
-        if 'company_posts' not in st.session_state:
-            st.session_state.company_posts = None
-        if 'company_analysis' not in st.session_state:
-            st.session_state.company_analysis = None
-        if 'posts_analysis' not in st.session_state:
-            st.session_state.posts_analysis = None
-
         if st.button("Fetch Company Data"):
             with st.spinner("Fetching company information and posts..."):
                 company_info = get_company_info(company_url, api_keys["rapidapi"])
                 company_posts = get_company_posts(company_url, api_keys["rapidapi"])
                 if company_info and company_posts:
-                    st.session_state.company_info = company_info
-                    st.session_state.company_posts = company_posts
-                    st.success("Company data fetched successfully!")
+                    store_data('company_info', company_info)
+                    store_data('company_posts', company_posts)
+                    st.success("Company data fetched and stored successfully!")
                 else:
                     st.error("Failed to fetch company data. Please try again.")
 
-        if st.session_state.company_info:
-            display_company_info(st.session_state.company_info)
-            display_competitors(st.session_state.company_info)
+        stored_company_info = get_stored_data('company_info')
+        if stored_company_info:
+            display_company_info(stored_company_info)
+            display_competitors(stored_company_info)
 
-            if st.button("Analyze Company Posts"):
-                with st.spinner("Analyzing company posts..."):
-                    posts_text = "\n\n".join([post.get('postText', '') for post in st.session_state.company_posts.get('posts', [])])
-                    posts_prompt = """Analyze the following LinkedIn posts and provide insights on:
-                    1. Content style (formal, casual, professional, etc.)
-                    2. Tone (informative, persuasive, inspirational, etc.)
-                    3. Common themes or topics
-                    4. Use of hashtags or mentions
-                    5. Length and structure of posts
-                    
-                    Provide a summary of your analysis."""
-                    
-                    posts_analysis = analyze_text(posts_text, posts_prompt, api_keys["openrouter"])
-                    
-                    if posts_analysis:
-                        st.session_state.posts_analysis = posts_analysis
-                        st.success("Analysis completed successfully!")
-                    else:
-                        st.error("Failed to complete analysis. Please try again.")
+            st.write("---")
+            st.subheader("Analyze Company Posts")
+            st.write("""
+            Press the button below to analyze the company's LinkedIn posts. 
+            This will provide insights on:
+            - Content style (formal, casual, professional, etc.)
+            - Tone (informative, persuasive, inspirational, etc.)
+            - Common themes or topics
+            - Use of hashtags and mentions
+            - Length and structure of posts
+            """)
 
-            if st.session_state.posts_analysis:
+            if st.button("Analyze Posts"):
+                stored_company_posts = get_stored_data('company_posts')
+                if stored_company_posts:
+                    with st.spinner("Analyzing company posts..."):
+                        posts_text = "\n\n".join([post.get('postText', '') for post in stored_company_posts.get('response', [])])
+                        posts_prompt = """Analyze the following LinkedIn posts and provide insights on:
+                        1. Content style (formal, casual, professional, etc.)
+                        2. Tone (informative, persuasive, inspirational, etc.)
+                        3. Common themes or topics
+                        4. Use of hashtags or mentions
+                        5. Length and structure of posts
+                        
+                        Provide a summary of your analysis."""
+                        
+                        posts_analysis = analyze_text(posts_text, posts_prompt, api_keys["openrouter"])
+                        
+                        if posts_analysis:
+                            store_data('posts_analysis', posts_analysis)
+                            st.success("Analysis completed and stored successfully!")
+                        else:
+                            st.error("Failed to complete analysis. Please try again.")
+                else:
+                    st.error("No stored company posts found. Please fetch company data first.")
+
+            stored_posts_analysis = get_stored_data('posts_analysis')
+            if stored_posts_analysis:
                 st.subheader("Posts Analysis")
-                st.write(st.session_state.posts_analysis)
+                st.write(stored_posts_analysis)
+
+                st.write("---")
+                st.subheader("Generate Example Post")
+                st.write("""
+                Press the button below to generate an example post based on the analysis.
+                This will:
+                - Create a prompt that captures the company's posting style
+                - Generate a sample post using that prompt
+                """)
 
                 if st.button("Generate Example Post"):
                     with st.spinner("Generating example post..."):
                         example_prompt = "Based on the analysis of the LinkedIn posts, provide a prompt that would generate posts in a similar style, along with an example post."
-                        example_post = analyze_text(st.session_state.posts_analysis, example_prompt, api_keys["openrouter"])
+                        example_post = analyze_text(stored_posts_analysis, example_prompt, api_keys["openrouter"])
                         
                         if example_post:
-                            st.subheader("Example Post Generation")
+                            store_data('example_post', example_post)
+                            st.subheader("Generated Post")
                             st.write(example_post)
                         else:
                             st.error("Failed to generate example post. Please try again.")
+        else:
+            st.warning("No company data stored. Please fetch company data first.")
 
 def login_page():
     st.title("Login")
