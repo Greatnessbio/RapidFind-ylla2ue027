@@ -71,7 +71,17 @@ def summarize_company_info(company_info):
         summary += f"Industry: {data.get('industry', 'N/A')}\n"
         summary += f"Company Size: {data.get('employeeCount', 'N/A')} employees\n"
         summary += f"Headquarters: {data.get('headquarter', {}).get('city', 'N/A')}, {data.get('headquarter', {}).get('country', 'N/A')}\n"
-        summary += f"Founded: {data.get('foundedOn', {}).get('year', 'N/A')}\n"
+        
+        # Handle 'foundedOn' more flexibly
+        founded_on = data.get('foundedOn', 'N/A')
+        if isinstance(founded_on, dict):
+            founded_year = founded_on.get('year', 'N/A')
+        elif isinstance(founded_on, str):
+            founded_year = founded_on
+        else:
+            founded_year = 'N/A'
+        summary += f"Founded: {founded_year}\n"
+        
         summary += f"Specialties: {', '.join(data.get('specialities', ['N/A']))}\n"
         summary += f"\nDescription: {data.get('description', 'N/A')}\n"
     else:
