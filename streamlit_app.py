@@ -5,7 +5,146 @@ from streamlit.logger import get_logger
 
 LOGGER = get_logger(__name__)
 
-# ... [All previous functions remain the same] ...
+def load_api_keys():
+    try:
+        return {
+            "openrouter": st.secrets["secrets"]["openrouter_api_key"],
+            "rapidapi": st.secrets["secrets"]["rapidapi_key"]
+        }
+    except KeyError as e:
+        st.error(f"{e} API key not found in secrets.toml. Please add it.")
+        return None
+
+def load_users():
+    return st.secrets["users"]
+
+def login(username, password):
+    users = load_users()
+    if username in users and users[username] == password:
+        return True
+    return False
+
+def store_data(key, value):
+    st.session_state[key] = value
+    LOGGER.info(f"Stored data for key: {key}")
+
+def get_stored_data(key):
+    if key in st.session_state:
+        LOGGER.info(f"Retrieved data for key: {key}")
+        return st.session_state[key]
+    else:
+        LOGGER.warning(f"No data found for key: {key}")
+        return None
+
+def get_company_info(company_url, rapidapi_key):
+    url = "https://linkedin-data-scraper.p.rapidapi.com/company_pro"
+    payload = {"link": company_url}
+    headers = {
+        "x-rapidapi-key": rapidapi_key,
+        "x-rapidapi-host": "linkedin-data-scraper.p.rapidapi.com",
+        "Content-Type": "application/json"
+    }
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        LOGGER.error(f"Company info API request failed: {e}")
+        st.error("Failed to fetch company information. Please try again later.")
+    return None
+
+def get_company_posts(company_url, rapidapi_key):
+    url = "https://linkedin-data-scraper.p.rapidapi.com/company_updates"
+    payload = {
+        "company_url": company_url,
+        "posts": 20,
+        "comments": 10,
+        "reposts": 10
+    }
+    headers = {
+        "x-rapidapi-key": rapidapi_key,
+        "x-rapidapi-host": "linkedin-data-scraper.p.rapidapi.com",
+        "Content-Type": "application/json"
+    }
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        LOGGER.error(f"Company posts API request failed: {e}")
+        st.error("Failed to fetch company posts. Please try again later.")
+    return None
+
+def analyze_text(text, prompt, openrouter_key):
+    try:
+        response = requests.post(
+            url="https://openrouter.ai/api/v1/chat/completions",
+            headers={"Authorization": f"Bearer {openrouter_key}"},
+            json={
+                "model": "anthropic/claude-3-sonnet-20240229",
+                "messages": [
+                    {"role": "system", "content": "You are an expert in content analysis and creation."},
+                    {"role": "user", "content": prompt + "\n\n" + text}
+                ]
+            },
+            timeout=30
+        )
+        response.raise_for_status()
+        return response.json()['choices'][0]['message']['content']
+    except requests.RequestException as e:
+        LOGGER.error(f"OpenRouter API request failed: {e}")
+        st.error("Failed to generate analysis. Please try again later.")
+    except (KeyError, IndexError, ValueError) as e:
+        LOGGER.error(f"Error processing OpenRouter API response: {e}")
+        st.error("Error processing the generated content. Please try again.")
+    return None
+
+def display_company_info(company_info):
+    st.subheader("Company Information")
+    
+    if not company_info or 'data' not in company_info:
+        st.error("No valid company information available.")
+        return
+
+    data = company_info['data']
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if 'logoResolutionResult' in data:
+            st.image(data['logoResolutionResult'], width=200)
+        st.write(f"**{data.get('companyName', 'N/A')}**")
+        st.write(f"Industry: {data.get('industry', 'N/A')}")
+        founded_year = data.get('foundedOn', {}).get('year', 'N/A')
+        st.write(f"Founded: {founded_year}")
+        st.write(f"Employees: {data.get('employeeCount', 'N/A')}")
+    
+    with col2:
+        st.write(f"Tagline: {data.get('tagline', 'N/A')}")
+        st.write(f"Followers: {data.get('followerCount', 'N/A')}")
+        st.write(f"Website: {data.get('websiteUrl', 'N/A')}")
+        headquarter = data.get('headquarter', {})
+        hq_city = headquarter.get('city', 'N/A')
+        hq_country = headquarter.get('country', 'N/A')
+        st.write(f"Headquarters: {hq_city}, {hq_country}")
+
+    st.write("**Description:**")
+    st.write(data.get('description', 'No description available.'))
+
+def display_competitors(company_info):
+    st.subheader("Similar Companies")
+    
+    if not company_info or 'data' not in company_info or 'similarOrganizations' not in company_info['data']:
+        st.warning("No competitor information available.")
+        return
+
+    competitors = company_info['data']['similarOrganizations']
+    
+    for company in competitors[:5]:  # Display top 5 competitors
+        st.write(f"**{company.get('name', 'N/A')}**")
+        st.write(f"Industry: {company.get('industry', 'N/A')}")
+        st.write(f"Followers: {company.get('followerCount', 'N/A')}")
+        st.write("---")
 
 def main_app():
     api_keys = load_api_keys()
@@ -95,7 +234,33 @@ def main_app():
         else:
             st.warning("No company data stored. Please enter a valid LinkedIn company URL.")
 
-# ... [The rest of the code (login_page, display, etc.) remains the same] ...
+def login_page():
+    st.title("Login")
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+    if st.button("Login"):
+        if login(username, password):
+            st.session_state.logged_in = True
+            st.success("Logged in successfully!")
+            st.rerun()
+        else:
+            st.error("Invalid username or password")
+
+def display():
+    if 'logged_in' not in st.session_state:
+        st.session_state.logged_in = False
+
+    if not st.session_state.logged_in:
+        login_page()
+    else:
+        st.title("LinkedIn Company Analysis")
+        if st.button("Logout"):
+            st.session_state.logged_in = False
+            st.rerun()
+        else:
+            main_app()
+
+    st.caption("Note: This app uses RapidAPI's LinkedIn Data Scraper and OpenRouter for AI model access. Make sure you have valid API keys for both services.")
 
 if __name__ == "__main__":
     display()
