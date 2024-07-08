@@ -112,20 +112,33 @@ def display_company_info(company_info):
     
     with col1:
         if 'logoResolutionResult' in data:
-            st.image(data['logoResolutionResult'], width=200)
+            st.image(data.get('logoResolutionResult', ''), width=200)
         st.write(f"**{data.get('companyName', 'N/A')}**")
         st.write(f"Industry: {data.get('industry', 'N/A')}")
-        founded_year = data.get('foundedOn', {}).get('year', 'N/A')
+        
+        # Handle 'foundedOn' more carefully
+        founded_year = 'N/A'
+        if isinstance(data.get('foundedOn'), dict):
+            founded_year = data['foundedOn'].get('year', 'N/A')
+        elif isinstance(data.get('foundedOn'), str):
+            founded_year = data['foundedOn']
         st.write(f"Founded: {founded_year}")
+        
         st.write(f"Employees: {data.get('employeeCount', 'N/A')}")
     
     with col2:
         st.write(f"Tagline: {data.get('tagline', 'N/A')}")
         st.write(f"Followers: {data.get('followerCount', 'N/A')}")
         st.write(f"Website: {data.get('websiteUrl', 'N/A')}")
+        
+        # Handle 'headquarter' more carefully
         headquarter = data.get('headquarter', {})
-        hq_city = headquarter.get('city', 'N/A')
-        hq_country = headquarter.get('country', 'N/A')
+        if isinstance(headquarter, dict):
+            hq_city = headquarter.get('city', 'N/A')
+            hq_country = headquarter.get('country', 'N/A')
+        else:
+            hq_city = 'N/A'
+            hq_country = 'N/A'
         st.write(f"Headquarters: {hq_city}, {hq_country}")
 
     st.write("**Description:**")
@@ -164,11 +177,16 @@ def main_app():
                 st.success("Company data fetched and stored successfully!")
             else:
                 st.error("Failed to fetch company data. Please check the URL and try again.")
+                return  # Exit the function if data fetch failed
 
         stored_company_info = get_stored_data('company_info')
         if stored_company_info:
-            display_company_info(stored_company_info)
-            display_competitors(stored_company_info)
+            try:
+                display_company_info(stored_company_info)
+                display_competitors(stored_company_info)
+            except Exception as e:
+                st.error(f"An error occurred while displaying company information: {str(e)}")
+                LOGGER.error(f"Error in display_company_info: {str(e)}")
 
             st.write("---")
             st.subheader("Analyze Company Posts")
