@@ -45,7 +45,7 @@ def get_company_posts(company_url, rapidapi_key):
     url = "https://linkedin-data-scraper.p.rapidapi.com/company_updates"
     payload = {
         "company_url": company_url,
-        "posts": 10,
+        "posts": 20,
         "comments": 10,
         "reposts": 10
     }
@@ -63,51 +63,84 @@ def get_company_posts(company_url, rapidapi_key):
         st.error("Failed to fetch company posts. Please try again later.")
     return None
 
-def summarize_company_info(company_info):
-    summary = ""
-    if 'data' in company_info:
-        data = company_info['data']
-        summary += f"Company Name: {data.get('companyName', 'N/A')}\n"
-        summary += f"Industry: {data.get('industry', 'N/A')}\n"
-        summary += f"Company Size: {data.get('employeeCount', 'N/A')} employees\n"
-        summary += f"Headquarters: {data.get('headquarter', {}).get('city', 'N/A')}, {data.get('headquarter', {}).get('country', 'N/A')}\n"
-        
-        # Handle 'foundedOn' more flexibly
-        founded_on = data.get('foundedOn', 'N/A')
-        if isinstance(founded_on, dict):
-            founded_year = founded_on.get('year', 'N/A')
-        elif isinstance(founded_on, str):
-            founded_year = founded_on
-        else:
-            founded_year = 'N/A'
-        summary += f"Founded: {founded_year}\n"
-        
-        summary += f"Specialties: {', '.join(data.get('specialities', ['N/A']))}\n"
-        summary += f"\nDescription: {data.get('description', 'N/A')}\n"
+def create_company_summary(company_info):
+    if 'data' not in company_info:
+        return "No company information available."
+
+    data = company_info['data']
+    summary = f"# {data.get('companyName', 'N/A')}\n\n"
+    
+    if 'logoResolutionResult' in data:
+        summary += f"![Company Logo]({data['logoResolutionResult']})\n\n"
+    
+    summary += f"**Industry:** {data.get('industry', 'N/A')}\n"
+    summary += f"**Company Size:** {data.get('employeeCount', 'N/A')} employees\n"
+    summary += f"**Headquarters:** {data.get('headquarter', {}).get('city', 'N/A')}, {data.get('headquarter', {}).get('country', 'N/A')}\n"
+    
+    founded_on = data.get('foundedOn', 'N/A')
+    if isinstance(founded_on, dict):
+        founded_year = founded_on.get('year', 'N/A')
+    elif isinstance(founded_on, str):
+        founded_year = founded_on
     else:
-        summary = "No company information available."
+        founded_year = 'N/A'
+    summary += f"**Founded:** {founded_year}\n"
+    
+    summary += f"**Specialties:** {', '.join(data.get('specialities', ['N/A']))}\n\n"
+    summary += f"**Description:** {data.get('description', 'N/A')}\n\n"
+    
+    summary += "## Competitors\n"
+    for competitor in data.get('similarOrganizations', [])[:5]:
+        summary += f"- **{competitor.get('name', 'N/A')}** ({competitor.get('industry', 'N/A')})\n"
+    
     return summary
 
-def summarize_company_posts(company_posts):
-    summary = ""
-    if 'response' in company_posts:
-        posts = company_posts['response']
-        summary += f"Analyzed {len(posts)} recent posts:\n\n"
-        for i, post in enumerate(posts, 1):
-            summary += f"Post {i}:\n"
-            summary += f"Text: {post.get('postText', 'N/A')[:100]}...\n"
-            summary += f"Likes: {post.get('socialCount', {}).get('numLikes', 'N/A')}\n"
-            summary += f"Comments: {post.get('socialCount', {}).get('numComments', 'N/A')}\n"
-            summary += f"Shares: {post.get('socialCount', {}).get('numShares', 'N/A')}\n\n"
-    else:
-        summary = "No company posts available."
-    return summary
+def analyze_posts(posts):
+    post_texts = [post.get('postText', '') for post in posts if post.get('postText')]
+    combined_text = "\n\n".join(post_texts)
+    
+    prompt = """Analyze the following LinkedIn posts and provide insights on:
+    1. Content style (formal, casual, professional, etc.)
+    2. Tone (informative, persuasive, inspirational, etc.)
+    3. Common themes or topics
+    4. Use of hashtags or mentions
+    5. Length and structure of posts
+    6. Engagement patterns (likes, comments, shares)
+    
+    Provide a summary of your analysis."""
+    
+    return analyze_text(combined_text, prompt)
 
-def analyze_text(text, prompt, openrouter_key):
+def generate_post_prompt(company_info, post_analysis):
+    prompt = f"""Based on the following company information and post analysis, create a detailed prompt that can be used to generate LinkedIn posts in the style of this company:
+
+    Company Information:
+    {json.dumps(company_info.get('data', {}), indent=2)}
+
+    Post Analysis:
+    {post_analysis}
+
+    Your task is to create a prompt that captures:
+    1. The company's industry and focus
+    2. The typical content style and tone used in their posts
+    3. Common themes and topics they discuss
+    4. Their use of hashtags and mentions
+    5. The typical length and structure of their posts
+    6. Any other unique characteristics of their LinkedIn communication
+
+    Provide the prompt in a format that can be directly used to generate new posts."""
+    
+    return analyze_text(prompt)
+
+def analyze_text(text, prompt):
+    api_keys = load_api_keys()
+    if not api_keys:
+        return "Error: API keys not found."
+
     try:
         response = requests.post(
             url="https://openrouter.ai/api/v1/chat/completions",
-            headers={"Authorization": f"Bearer {openrouter_key}"},
+            headers={"Authorization": f"Bearer {api_keys['openrouter']}"},
             json={
                 "model": "anthropic/claude-3-sonnet-20240229",
                 "messages": [
@@ -121,11 +154,10 @@ def analyze_text(text, prompt, openrouter_key):
         return response.json()['choices'][0]['message']['content']
     except requests.RequestException as e:
         LOGGER.error(f"OpenRouter API request failed: {e}")
-        st.error("Failed to generate analysis. Please try again later.")
+        return "Error: Failed to generate analysis. Please try again later."
     except (KeyError, IndexError, ValueError) as e:
         LOGGER.error(f"Error processing OpenRouter API response: {e}")
-        st.error("Error processing the generated content. Please try again.")
-    return None
+        return "Error: Failed to process the generated content. Please try again."
 
 def main_app():
     api_keys = load_api_keys()
@@ -135,40 +167,43 @@ def main_app():
     company_url = st.text_input("Enter LinkedIn Company URL:")
 
     if company_url:
-        with st.spinner("Fetching company information and posts..."):
-            company_info = get_company_info(company_url, api_keys["rapidapi"])
-            company_posts = get_company_posts(company_url, api_keys["rapidapi"])
+        if 'company_info' not in st.session_state:
+            with st.spinner("Fetching company information..."):
+                company_info = get_company_info(company_url, api_keys["rapidapi"])
+                if company_info:
+                    st.session_state.company_info = company_info
+                    st.success("Company information fetched successfully!")
+                else:
+                    st.error("Failed to fetch company information. Please try again.")
+                    return
 
-            if company_info and company_posts:
-                st.success("Data fetched successfully!")
+        if 'company_summary' not in st.session_state:
+            st.session_state.company_summary = create_company_summary(st.session_state.company_info)
 
-                st.subheader("Company Summary")
-                company_summary = summarize_company_info(company_info)
-                st.text_area("Company Information", company_summary, height=300)
+        st.markdown(st.session_state.company_summary)
 
-                st.subheader("Recent Posts Summary")
-                posts_summary = summarize_company_posts(company_posts)
-                st.text_area("Recent Posts", posts_summary, height=300)
+        if st.button("Analyze Company Posts"):
+            if 'company_posts' not in st.session_state:
+                with st.spinner("Fetching company posts..."):
+                    company_posts = get_company_posts(company_url, api_keys["rapidapi"])
+                    if company_posts:
+                        st.session_state.company_posts = company_posts
+                        st.success("Company posts fetched successfully!")
+                    else:
+                        st.error("Failed to fetch company posts. Please try again.")
+                        return
 
-                if st.button("Analyze Company Profile and Posts"):
-                    analysis_prompt = """
-                    Based on the company information and recent posts, provide an analysis covering:
-                    1. The company's main focus and industry position
-                    2. Their communication style on LinkedIn
-                    3. Key themes or topics they frequently discuss
-                    4. The level of engagement they receive on their posts
-                    5. Suggestions for improving their LinkedIn presence
-                    """
-                    with st.spinner("Analyzing company profile and posts..."):
-                        analysis = analyze_text(company_summary + "\n\n" + posts_summary, analysis_prompt, api_keys["openrouter"])
-                        if analysis:
-                            st.subheader("Analysis")
-                            st.write(analysis)
-                        else:
-                            st.error("Failed to generate analysis. Please try again.")
+            with st.spinner("Analyzing company posts..."):
+                post_analysis = analyze_posts(st.session_state.company_posts.get('response', []))
+                st.subheader("Post Analysis")
+                st.write(post_analysis)
+                st.session_state.post_analysis = post_analysis
 
-            else:
-                st.error("Failed to fetch company data. Please check the URL and try again.")
+        if 'post_analysis' in st.session_state and st.button("Generate AI Prompt for Posts"):
+            with st.spinner("Generating AI prompt..."):
+                ai_prompt = generate_post_prompt(st.session_state.company_info, st.session_state.post_analysis)
+                st.subheader("AI Prompt for Generating Posts")
+                st.text_area("Generated Prompt", ai_prompt, height=300)
 
 def login_page():
     st.title("Login")
