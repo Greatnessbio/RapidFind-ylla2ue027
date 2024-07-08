@@ -130,12 +130,12 @@ def generate_post_prompt(company_info, post_analysis):
 
     Provide the prompt in a format that can be directly used to generate new posts."""
     
-    return analyze_text(prompt)
+    return analyze_text(prompt, prompt)  # Pass the prompt as both text and prompt arguments
 
 def analyze_text(text, prompt):
     api_keys = load_api_keys()
-    if not api_keys:
-        return "Error: API keys not found."
+    if not api_keys or 'openrouter' not in api_keys:
+        return "Error: OpenRouter API key not found."
 
     try:
         response = requests.post(
@@ -154,10 +154,10 @@ def analyze_text(text, prompt):
         return response.json()['choices'][0]['message']['content']
     except requests.RequestException as e:
         LOGGER.error(f"OpenRouter API request failed: {e}")
-        return "Error: Failed to generate analysis. Please try again later."
+        return f"Error: Failed to generate analysis. Please try again later. Details: {str(e)}"
     except (KeyError, IndexError, ValueError) as e:
         LOGGER.error(f"Error processing OpenRouter API response: {e}")
-        return "Error: Failed to process the generated content. Please try again."
+        return f"Error: Failed to process the generated content. Please try again. Details: {str(e)}"
 
 def main_app():
     api_keys = load_api_keys()
@@ -204,6 +204,8 @@ def main_app():
                 ai_prompt = generate_post_prompt(st.session_state.company_info, st.session_state.post_analysis)
                 st.subheader("AI Prompt for Generating Posts")
                 st.text_area("Generated Prompt", ai_prompt, height=300)
+
+# ... rest of the code remains the same
 
 def login_page():
     st.title("Login")
