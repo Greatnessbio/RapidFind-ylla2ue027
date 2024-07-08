@@ -101,30 +101,49 @@ def analyze_text(text, prompt, openrouter_key):
 
 def display_company_info(company_info):
     st.subheader("Company Information")
+    
+    if not company_info or 'data' not in company_info:
+        st.error("No valid company information available.")
+        return
+
+    data = company_info['data']
+    
     col1, col2 = st.columns(2)
     
     with col1:
-        st.image(company_info['data']['logoResolutionResult'], width=200)
-        st.write(f"**{company_info['data']['companyName']}**")
-        st.write(f"Industry: {company_info['data']['industry']}")
-        st.write(f"Founded: {company_info['data']['foundedOn']['year']}")
-        st.write(f"Employees: {company_info['data']['employeeCount']}")
+        if 'logoResolutionResult' in data:
+            st.image(data['logoResolutionResult'], width=200)
+        st.write(f"**{data.get('companyName', 'N/A')}**")
+        st.write(f"Industry: {data.get('industry', 'N/A')}")
+        founded_year = data.get('foundedOn', {}).get('year', 'N/A')
+        st.write(f"Founded: {founded_year}")
+        st.write(f"Employees: {data.get('employeeCount', 'N/A')}")
     
     with col2:
-        st.write(f"Tagline: {company_info['data']['tagline']}")
-        st.write(f"Followers: {company_info['data']['followerCount']}")
-        st.write(f"Website: {company_info['data']['websiteUrl']}")
-        st.write(f"Headquarters: {company_info['data']['headquarter']['city']}, {company_info['data']['headquarter']['country']}")
+        st.write(f"Tagline: {data.get('tagline', 'N/A')}")
+        st.write(f"Followers: {data.get('followerCount', 'N/A')}")
+        st.write(f"Website: {data.get('websiteUrl', 'N/A')}")
+        headquarter = data.get('headquarter', {})
+        hq_city = headquarter.get('city', 'N/A')
+        hq_country = headquarter.get('country', 'N/A')
+        st.write(f"Headquarters: {hq_city}, {hq_country}")
 
     st.write("**Description:**")
-    st.write(company_info['data']['description'])
+    st.write(data.get('description', 'No description available.'))
 
 def display_competitors(company_info):
     st.subheader("Similar Companies")
-    for company in company_info['data']['similarOrganizations'][:5]:  # Display top 5 competitors
-        st.write(f"**{company['name']}**")
-        st.write(f"Industry: {company['industry']}")
-        st.write(f"Followers: {company['followerCount']}")
+    
+    if not company_info or 'data' not in company_info or 'similarOrganizations' not in company_info['data']:
+        st.warning("No competitor information available.")
+        return
+
+    competitors = company_info['data']['similarOrganizations']
+    
+    for company in competitors[:5]:  # Display top 5 competitors
+        st.write(f"**{company.get('name', 'N/A')}**")
+        st.write(f"Industry: {company.get('industry', 'N/A')}")
+        st.write(f"Followers: {company.get('followerCount', 'N/A')}")
         st.write("---")
 
 def main_app():
@@ -165,9 +184,9 @@ def main_app():
 
             if st.button("Analyze Posts"):
                 stored_company_posts = get_stored_data('company_posts')
-                if stored_company_posts:
+                if stored_company_posts and 'response' in stored_company_posts:
                     with st.spinner("Analyzing company posts..."):
-                        posts_text = "\n\n".join([post.get('postText', '') for post in stored_company_posts.get('response', [])])
+                        posts_text = "\n\n".join([post.get('postText', '') for post in stored_company_posts['response']])
                         posts_prompt = """Analyze the following LinkedIn posts and provide insights on:
                         1. Content style (formal, casual, professional, etc.)
                         2. Tone (informative, persuasive, inspirational, etc.)
@@ -185,7 +204,7 @@ def main_app():
                         else:
                             st.error("Failed to complete analysis. Please try again.")
                 else:
-                    st.error("No stored company posts found. Please fetch company data first.")
+                    st.error("No stored company posts found or invalid data structure. Please fetch company data first.")
 
             stored_posts_analysis = get_stored_data('posts_analysis')
             if stored_posts_analysis:
