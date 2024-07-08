@@ -25,29 +25,48 @@ def login(username, password):
     return False
 
 def get_company_info(company_url, rapidapi_key):
-    url = "https://linkedin-data-scraper.p.rapidapi.com/company_pro"
-    payload = {"link": company_url}
+    url = "https://linkedin-data-scraper.p.rapidapi.com/company-info"
+    querystring = {"url": company_url}
     headers = {
-        "content-type": "application/json",
         "X-RapidAPI-Key": rapidapi_key,
         "X-RapidAPI-Host": "linkedin-data-scraper.p.rapidapi.com"
     }
-    response = requests.post(url, json=payload, headers=headers)
-    return response.json()
+    try:
+        response = requests.get(url, headers=headers, params=querystring)
+        response.raise_for_status()
+        data = response.json()
+        return data.get('data', {})
+    except requests.RequestException as e:
+        LOGGER.error(f"Company info API request failed: {e}")
+        st.error("Failed to fetch company information. Please try again later.")
+    return {}
 
 def get_company_posts(company_url, rapidapi_key):
-    url = "https://linkedin-data-scraper.p.rapidapi.com/company_updates"
-    querystring = {"company_url": company_url, "page": "1", "posts": "10"}
+    url = "https://linkedin-data-scraper.p.rapidapi.com/company-posts"
+    querystring = {"url": company_url, "limit": "10"}
     headers = {
         "X-RapidAPI-Key": rapidapi_key,
         "X-RapidAPI-Host": "linkedin-data-scraper.p.rapidapi.com"
     }
-    response = requests.get(url, headers=headers, params=querystring)
-    return response.json()
+    try:
+        response = requests.get(url, headers=headers, params=querystring)
+        response.raise_for_status()
+        data = response.json()
+        return data.get('data', [])
+    except requests.RequestException as e:
+        LOGGER.error(f"Company posts API request failed: {e}")
+        st.error("Failed to fetch company posts. Please try again later.")
+    return []
 
 def analyze_posts(posts, model, openrouter_key):
-    post_texts = [post['text'] for post in posts if 'text' in post]
+    if not posts:
+        return "No posts available for analysis."
+
+    post_texts = [post.get('content', '') for post in posts if post.get('content')]
     combined_text = "\n\n".join(post_texts)
+
+    if not combined_text:
+        return "No post content available for analysis."
 
     prompt = f"""Analyze the following LinkedIn posts and provide insights on:
     1. Content style (formal, casual, professional, etc.)
@@ -78,10 +97,10 @@ def analyze_posts(posts, model, openrouter_key):
         response.raise_for_status()
         return response.json()['choices'][0]['message']['content']
     except requests.RequestException as e:
-        LOGGER.error(f"API request failed: {e}")
-        st.error("Failed to generate content. Please try again later.")
+        LOGGER.error(f"OpenRouter API request failed: {e}")
+        st.error("Failed to generate content analysis. Please try again later.")
     except (KeyError, IndexError, ValueError) as e:
-        LOGGER.error(f"Error processing API response: {e}")
+        LOGGER.error(f"Error processing OpenRouter API response: {e}")
         st.error("Error processing the generated content. Please try again.")
     return None
 
@@ -114,7 +133,7 @@ def main_app():
 
         with st.spinner(f"Fetching and analyzing company posts using {model}..."):
             company_posts = get_company_posts(company_url, api_keys["rapidapi"])
-            analysis = analyze_posts(company_posts.get('posts', []), model, api_keys["openrouter"])
+            analysis = analyze_posts(company_posts, model, api_keys["openrouter"])
             
             if analysis:
                 st.subheader("Content Analysis and Prompt Generation")
