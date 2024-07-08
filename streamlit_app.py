@@ -81,6 +81,34 @@ def analyze_text(text, prompt, openrouter_key):
         st.error("Error processing the generated content. Please try again.")
     return None
 
+def display_company_info(company_info):
+    st.subheader("Company Information")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.image(company_info['data']['logoResolutionResult'], width=200)
+        st.write(f"**{company_info['data']['companyName']}**")
+        st.write(f"Industry: {company_info['data']['industry']}")
+        st.write(f"Founded: {company_info['data']['foundedOn']['year']}")
+        st.write(f"Employees: {company_info['data']['employeeCount']}")
+    
+    with col2:
+        st.write(f"Tagline: {company_info['data']['tagline']}")
+        st.write(f"Followers: {company_info['data']['followerCount']}")
+        st.write(f"Website: {company_info['data']['websiteUrl']}")
+        st.write(f"Headquarters: {company_info['data']['headquarter']['city']}, {company_info['data']['headquarter']['country']}")
+
+    st.write("**Description:**")
+    st.write(company_info['data']['description'])
+
+def display_competitors(company_info):
+    st.subheader("Similar Companies")
+    for company in company_info['data']['similarOrganizations'][:5]:  # Display top 5 competitors
+        st.write(f"**{company['name']}**")
+        st.write(f"Industry: {company['industry']}")
+        st.write(f"Followers: {company['followerCount']}")
+        st.write("---")
+
 def main_app():
     api_keys = load_api_keys()
     if not api_keys:
@@ -97,8 +125,6 @@ def main_app():
             st.session_state.company_analysis = None
         if 'posts_analysis' not in st.session_state:
             st.session_state.posts_analysis = None
-        if 'example_prompt' not in st.session_state:
-            st.session_state.example_prompt = None
 
         if st.button("Fetch Company Data"):
             with st.spinner("Fetching company information and posts..."):
@@ -111,52 +137,44 @@ def main_app():
                 else:
                     st.error("Failed to fetch company data. Please try again.")
 
-        if st.session_state.company_info and st.session_state.company_posts:
-            st.subheader("Company Information")
-            st.write(json.dumps(st.session_state.company_info, indent=2))
+        if st.session_state.company_info:
+            display_company_info(st.session_state.company_info)
+            display_competitors(st.session_state.company_info)
 
-            st.subheader("Company Posts")
-            st.write(json.dumps(st.session_state.company_posts, indent=2))
-
-            if st.button("Analyze Company Data"):
-                with st.spinner("Analyzing company data..."):
-                    # Analyze company info
-                    company_info_prompt = "Summarize the following company information, highlighting key aspects of the company's profile:"
-                    company_analysis = analyze_text(json.dumps(st.session_state.company_info), company_info_prompt, api_keys["openrouter"])
-                    
-                    # Analyze posts
-                    posts_text = "\n\n".join([post.get('postText', '') for post in st.session_state.company_posts.get('response', [])])
+            if st.button("Analyze Company Posts"):
+                with st.spinner("Analyzing company posts..."):
+                    posts_text = "\n\n".join([post.get('postText', '') for post in st.session_state.company_posts.get('posts', [])])
                     posts_prompt = """Analyze the following LinkedIn posts and provide insights on:
                     1. Content style (formal, casual, professional, etc.)
                     2. Tone (informative, persuasive, inspirational, etc.)
                     3. Common themes or topics
                     4. Use of hashtags or mentions
-                    5. Length and structure of posts"""
+                    5. Length and structure of posts
+                    
+                    Provide a summary of your analysis."""
+                    
                     posts_analysis = analyze_text(posts_text, posts_prompt, api_keys["openrouter"])
-
-                    # Generate example prompt
-                    prompt_generation_prompt = "Based on the analysis of the LinkedIn posts, provide a prompt that would generate posts in a similar style, along with an example post."
-                    example_prompt = analyze_text(posts_analysis, prompt_generation_prompt, api_keys["openrouter"])
-
-                    if company_analysis and posts_analysis and example_prompt:
-                        st.session_state.company_analysis = company_analysis
+                    
+                    if posts_analysis:
                         st.session_state.posts_analysis = posts_analysis
-                        st.session_state.example_prompt = example_prompt
                         st.success("Analysis completed successfully!")
                     else:
                         st.error("Failed to complete analysis. Please try again.")
 
-        if st.session_state.company_analysis:
-            st.subheader("Company Analysis")
-            st.write(st.session_state.company_analysis)
+            if st.session_state.posts_analysis:
+                st.subheader("Posts Analysis")
+                st.write(st.session_state.posts_analysis)
 
-        if st.session_state.posts_analysis:
-            st.subheader("Posts Analysis")
-            st.write(st.session_state.posts_analysis)
-
-        if st.session_state.example_prompt:
-            st.subheader("Example Prompt and Post")
-            st.write(st.session_state.example_prompt)
+                if st.button("Generate Example Post"):
+                    with st.spinner("Generating example post..."):
+                        example_prompt = "Based on the analysis of the LinkedIn posts, provide a prompt that would generate posts in a similar style, along with an example post."
+                        example_post = analyze_text(st.session_state.posts_analysis, example_prompt, api_keys["openrouter"])
+                        
+                        if example_post:
+                            st.subheader("Example Post Generation")
+                            st.write(example_post)
+                        else:
+                            st.error("Failed to generate example post. Please try again.")
 
 def login_page():
     st.title("Login")
