@@ -1,6 +1,6 @@
 import streamlit as st
 import requests
-import re
+import time
 from streamlit.logger import get_logger
 
 LOGGER = get_logger(__name__)
@@ -25,40 +25,43 @@ def login(username, password):
     return False
 
 def get_company_info(company_url, rapidapi_key):
-    url = "https://linkedin-data-scraper.p.rapidapi.com/company-info"
+    url = "https://linkedin-profile-data.p.rapidapi.com/company-profile"
     querystring = {"url": company_url}
     headers = {
         "X-RapidAPI-Key": rapidapi_key,
-        "X-RapidAPI-Host": "linkedin-data-scraper.p.rapidapi.com"
+        "X-RapidAPI-Host": "linkedin-profile-data.p.rapidapi.com"
     }
     try:
         response = requests.get(url, headers=headers, params=querystring)
         response.raise_for_status()
         data = response.json()
-        return data.get('data', {})
+        return data
     except requests.RequestException as e:
         LOGGER.error(f"Company info API request failed: {e}")
         st.error("Failed to fetch company information. Please try again later.")
     return {}
 
 def get_company_posts(company_url, rapidapi_key):
-    url = "https://linkedin-data-scraper.p.rapidapi.com/company-posts"
+    url = "https://linkedin-profile-data.p.rapidapi.com/company-posts"
     querystring = {"url": company_url, "limit": "10"}
     headers = {
         "X-RapidAPI-Key": rapidapi_key,
-        "X-RapidAPI-Host": "linkedin-data-scraper.p.rapidapi.com"
+        "X-RapidAPI-Host": "linkedin-profile-data.p.rapidapi.com"
     }
     try:
         response = requests.get(url, headers=headers, params=querystring)
         response.raise_for_status()
         data = response.json()
-        return data.get('data', [])
+        return data.get('posts', [])
     except requests.RequestException as e:
         LOGGER.error(f"Company posts API request failed: {e}")
-        st.error("Failed to fetch company posts. Please try again later.")
+        if response.status_code == 429:
+            st.warning("Rate limit exceeded. Please wait a moment before trying again.")
+        else:
+            st.error("Failed to fetch company posts. Please try again later.")
     return []
 
-def analyze_posts(posts, model, openrouter_key):
+def analyze_posts(posts, openrouter_key):
     if not posts:
         return "No posts available for analysis."
 
@@ -86,7 +89,7 @@ def analyze_posts(posts, model, openrouter_key):
             url="https://openrouter.ai/api/v1/chat/completions",
             headers={"Authorization": f"Bearer {openrouter_key}"},
             json={
-                "model": model,
+                "model": "anthropic/claude-3-sonnet-20240229",
                 "messages": [
                     {"role": "system", "content": "You are an expert in content analysis and creation."},
                     {"role": "user", "content": prompt}
@@ -109,18 +112,6 @@ def main_app():
     if not api_keys:
         return
 
-    models = [
-        "anthropic/claude-3.5-sonnet",
-        "openai/gpt-3.5-turbo",
-        "openai/gpt-4",
-        "google/gemini-pro",
-        "openrouter/auto"
-    ]
-
-    selected_model = st.selectbox("Select AI Model", models, index=0)
-    custom_model = st.text_input("Or enter a custom model name:")
-    model = custom_model if custom_model else selected_model
-
     company_url = st.text_input("Enter LinkedIn Company URL:")
 
     if company_url:
@@ -131,13 +122,15 @@ def main_app():
             st.write(f"Industry: {company_info.get('industry', 'N/A')}")
             st.write(f"Description: {company_info.get('description', 'N/A')}")
 
-        with st.spinner(f"Fetching and analyzing company posts using {model}..."):
+        with st.spinner("Fetching and analyzing company posts..."):
             company_posts = get_company_posts(company_url, api_keys["rapidapi"])
-            analysis = analyze_posts(company_posts, model, api_keys["openrouter"])
-            
-            if analysis:
-                st.subheader("Content Analysis and Prompt Generation")
-                st.write(analysis)
+            if company_posts:
+                analysis = analyze_posts(company_posts, api_keys["openrouter"])
+                if analysis:
+                    st.subheader("Content Analysis and Prompt Generation")
+                    st.write(analysis)
+            else:
+                st.warning("No posts available for analysis. Please try again later.")
 
 def login_page():
     st.title("Login")
@@ -147,7 +140,7 @@ def login_page():
         if login(username, password):
             st.session_state.logged_in = True
             st.success("Logged in successfully!")
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.error("Invalid username or password")
 
@@ -161,11 +154,11 @@ def display():
         st.title("LinkedIn Company Analysis")
         if st.button("Logout"):
             st.session_state.logged_in = False
-            st.experimental_rerun()
+            st.rerun()
         else:
             main_app()
 
-    st.caption("Note: This app uses RapidAPI's LinkedIn Data Scraper and OpenRouter for AI model access. Make sure you have valid API keys for both services.")
+    st.caption("Note: This app uses RapidAPI's LinkedIn Profile Data API and OpenRouter for AI model access. Make sure you have valid API keys for both services.")
 
 if __name__ == "__main__":
     display()
